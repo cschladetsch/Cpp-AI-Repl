@@ -4,15 +4,14 @@ import ctypes
 import glob
 import hashlib
 import pickle
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, AutoModelForCausalLM
 import torch
+from functools import lru_cache
 import networkx as nx
-import numpy as np
-import warnings
-
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
-from functools import lru_cache
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, AutoModelForCausalLM
+import numpy as np
+import warnings
 
 # Suppress warnings
 warnings.filterwarnings("ignore", message=".*flash-attention.*")
@@ -87,16 +86,19 @@ def parse_cpp_file(file_path):
         print(f"Error parsing C++ file: {e}")
         return None
 
+# Fix: Use a unique key like location or spelling for Cursor objects
 @lru_cache(maxsize=100)
 def build_ast_graph(cursor):
     G = nx.DiGraph()
+
     def add_node_and_edges(node, parent=None):
-        node_id = str(node.hash)
+        node_id = f"{node.location.file}:{node.location.line}:{node.location.column}:{node.kind}" if node.location.file else node.spelling
         G.add_node(node_id, kind=node.kind.name, spelling=node.spelling)
         if parent:
-            G.add_edge(str(parent.hash), node_id)
+            G.add_edge(parent, node_id)
         for child in node.get_children():
-            add_node_and_edges(child, node)
+            add_node_and_edges(child, node_id)
+
     add_node_and_edges(cursor)
     return G
 
@@ -155,7 +157,7 @@ def extract_code_info(file_path):
     visit_node(cursor)
     return code_info
 
-# Load the model from Hugging Face with fallback to GPT-2
+# Load model with Phi-3.5, CodeT5, and GPT-2 fallback
 def load_model():
     cache_file_path = os.path.join(MODEL_CACHE_DIR, 'model_cache.pkl')
     if os.path.exists(cache_file_path):
@@ -166,18 +168,27 @@ def load_model():
             os.remove(cache_file_path)
 
     try:
-        print("Attempting to load CodeT5 model...")
-        model_name = "Salesforce/codet5-base"
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-        print("CodeT5 model loaded successfully.")
+        print("Attempting to load Phi-3.5 model...")
+        model_name = "microsoft/Phi-3.5-mini-instruct"
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, torch_dtype=torch.float32)
+        print("Phi-3.5 model loaded successfully.")
     except Exception as e:
-        print(f"Failed to load CodeT5 model: {e}")
-        print("Falling back to GPT-2 model...")
-        model_name = "gpt2"
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForCausalLM.from_pretrained(model_name)
-        print("GPT-2 model loaded successfully.")
+        print(f"Failed to load Phi-3.5 model: {e}")
+        print("Falling back to CodeT5 model...")
+
+        try:
+            model_name = "Salesforce/codet5-base"
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+            print("CodeT5 model loaded successfully.")
+        except Exception as e:
+            print(f"Failed to load CodeT5 model: {e}")
+            print("Falling back to GPT-2 model...")
+            model_name = "gpt2"
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = AutoModelForCausalLM.from_pretrained(model_name)
+            print("GPT-2 model loaded successfully.")
 
     with open(cache_file_path, 'wb') as f:
         pickle.dump((tokenizer, model), f)
@@ -234,5 +245,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 

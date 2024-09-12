@@ -1,5 +1,10 @@
 # AI-Powered C++ Code Analyzer
 
+## Building
+
+1. You will need _Python3_
+1. Run `fix_clang.py`
+
 ## 1. Project Structure
 
 ### 1.1 Main Application
