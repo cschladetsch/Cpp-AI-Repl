@@ -2,59 +2,44 @@ import sys
 import os
 import ctypes
 import glob
-import hashlib
-import pickle
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, AutoModelForCausalLM
-import torch
 from functools import lru_cache
 import networkx as nx
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
-import numpy as np
 import warnings
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
 
-# Suppress warnings
-warnings.filterwarnings("ignore", message=".*flash-attention.*")
-warnings.filterwarnings("ignore", message=".*window_size.*")
+warnings.filterwarnings("ignore", category=UserWarning)
 
-# Set up caching directories
-CACHE_DIR = os.path.join(os.path.expanduser('~'), '.cache', 'cpp_analyzer')
-CLANG_CACHE_DIR = os.path.join(CACHE_DIR, 'clang')
-MODEL_CACHE_DIR = os.path.join(CACHE_DIR, 'models')
+# Define cache directories
+BASE_CACHE_DIR = os.path.expanduser('~/.cache')
+CPP_ANALYZER_CACHE_DIR = os.path.join(BASE_CACHE_DIR, 'cpp_analyzer')
+MODEL_CACHE_DIR = os.path.join(CPP_ANALYZER_CACHE_DIR, 'models')
+HUGGINGFACE_CACHE_DIR = os.path.join(BASE_CACHE_DIR, 'huggingface')
 
-os.makedirs(CLANG_CACHE_DIR, exist_ok=True)
+# Create cache directories
 os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
+os.makedirs(HUGGINGFACE_CACHE_DIR, exist_ok=True)
 
-os.environ['TRANSFORMERS_CACHE'] = os.path.join(os.path.expanduser('~'), '.cache', 'huggingface')
-os.environ['HF_HOME'] = os.path.join(os.path.expanduser('~'), '.cache', 'huggingface')
+# Set environment variables for caching
+os.environ['TRANSFORMERS_CACHE'] = HUGGINGFACE_CACHE_DIR
+os.environ['HF_HOME'] = HUGGINGFACE_CACHE_DIR
 
-# Function to cache files
-def cache_file(file_path, cache_dir):
-    try:
-        file_hash = hashlib.md5(open(file_path, 'rb').read()).hexdigest()
-        cache_path = os.path.join(cache_dir, f"{os.path.basename(file_path)}_{file_hash}")
-        if not os.path.exists(cache_path):
-            os.symlink(file_path, cache_path)
-        return cache_path
-    except Exception as e:
-        print(f"Error in cache_file: {e}")
-        return file_path
-
-# Function to load libclang
 def setup_clang_library():
     libclang_path = os.environ.get('LIBCLANG_PATH')
     if libclang_path and os.path.exists(libclang_path):
-        return cache_file(libclang_path, CLANG_CACHE_DIR)
+        return libclang_path
 
     libclang = ctypes.util.find_library("clang")
     if libclang:
-        return cache_file(libclang, CLANG_CACHE_DIR)
+        return libclang
 
     search_paths = ['/usr/lib', '/usr/local/lib', '/usr/local/opt/llvm/lib', '/opt/homebrew/opt/llvm/lib']
     for path in search_paths:
         matches = glob.glob(os.path.join(path, 'libclang*'))
         if matches:
-            return cache_file(matches[0], CLANG_CACHE_DIR)
+            return matches[0]
     return None
 
 def load_clang():
@@ -76,7 +61,6 @@ if not load_clang():
 
 import clang.cindex
 
-# Parse the C++ file and build the AST graph
 @lru_cache(maxsize=100)
 def parse_cpp_file(file_path):
     try:
@@ -86,13 +70,11 @@ def parse_cpp_file(file_path):
         print(f"Error parsing C++ file: {e}")
         return None
 
-# Fix: Use a unique key like location or spelling for Cursor objects
-@lru_cache(maxsize=100)
 def build_ast_graph(cursor):
     G = nx.DiGraph()
 
     def add_node_and_edges(node, parent=None):
-        node_id = f"{node.location.file}:{node.location.line}:{node.location.column}:{node.kind}" if node.location.file else node.spelling
+        node_id = f"{node.kind}:{node.spelling}:{node.location.line}:{node.location.column}"
         G.add_node(node_id, kind=node.kind.name, spelling=node.spelling)
         if parent:
             G.add_edge(parent, node_id)
@@ -102,21 +84,21 @@ def build_ast_graph(cursor):
     add_node_and_edges(cursor)
     return G
 
-# Extract features from the AST graph
 def extract_code_features(G):
+    if G is None:
+        return [0, 0, 0, 0, 0, 0]
     features = {
         'num_nodes': G.number_of_nodes(),
         'num_edges': G.number_of_edges(),
-        'avg_degree': sum(dict(G.degree()).values()) / G.number_of_nodes(),
+        'avg_degree': sum(dict(G.degree()).values()) / G.number_of_nodes() if G.number_of_nodes() > 0 else 0,
         'num_functions': sum(1 for _, data in G.nodes(data=True) if data['kind'] == 'FUNCTION_DECL'),
         'num_classes': sum(1 for _, data in G.nodes(data=True) if data['kind'] == 'CLASS_DECL'),
-        'max_depth': max(nx.shortest_path_length(G, source=list(G.nodes())[0]).values()),
+        'max_depth': max(nx.shortest_path_length(G, source=list(G.nodes())[0]).values()) if G.number_of_nodes() > 0 else 0,
     }
     return list(features.values())
 
-# Detect anomalies using Isolation Forest
 def detect_code_anomalies(code_info):
-    features = extract_code_features(code_info['ast_graph'])
+    features = extract_code_features(code_info.get('ast_graph'))
     features = StandardScaler().fit_transform([features])
 
     clf = IsolationForest(random_state=0).fit(features)
@@ -128,106 +110,101 @@ def detect_code_anomalies(code_info):
 
 @lru_cache(maxsize=1000)
 def extract_code_info(file_path):
-    translation_unit = parse_cpp_file(file_path)
-    if not translation_unit:
+    try:
+        translation_unit = parse_cpp_file(file_path)
+        if not translation_unit:
+            return None
+
+        cursor = translation_unit.cursor
+        code_info = {
+            'allocations': [],
+            'int_vars': [],
+            'functions': [],
+            'classes': [],
+            'ast_graph': None
+        }
+
+        try:
+            code_info['ast_graph'] = build_ast_graph(cursor)
+        except Exception as e:
+            print(f"Error building AST graph: {e}")
+
+        def visit_node(node):
+            if node.kind == clang.cindex.CursorKind.CALL_EXPR and node.spelling in ['new', 'malloc']:
+                code_info['allocations'].append((node.location.file.name, node.location.line, node.spelling))
+            elif node.kind == clang.cindex.CursorKind.VAR_DECL and node.type.spelling == 'int':
+                code_info['int_vars'].append((node.spelling, node.location.file.name, node.location.line))
+            elif node.kind == clang.cindex.CursorKind.FUNCTION_DECL:
+                code_info['functions'].append((node.spelling, node.location.file.name, node.location.line))
+            elif node.kind == clang.cindex.CursorKind.CLASS_DECL:
+                code_info['classes'].append((node.spelling, node.location.file.name, node.location.line))
+
+            for child in node.get_children():
+                visit_node(child)
+
+        visit_node(cursor)
+        return code_info
+    except Exception as e:
+        print(f"Error extracting code info: {e}")
         return None
 
-    cursor = translation_unit.cursor
-    code_info = {
-        'allocations': [],
-        'int_vars': [],
-        'functions': [],
-        'classes': [],
-        'ast_graph': build_ast_graph(cursor)
-    }
-
-    def visit_node(node):
-        if node.kind == clang.cindex.CursorKind.CALL_EXPR and node.spelling in ['new', 'malloc']:
-            code_info['allocations'].append((node.location.file.name, node.location.line, node.spelling))
-        elif node.kind == clang.cindex.CursorKind.VAR_DECL and node.type.spelling == 'int':
-            code_info['int_vars'].append((node.spelling, node.location.file.name, node.location.line))
-        elif node.kind == clang.cindex.CursorKind.FUNCTION_DECL:
-            code_info['functions'].append((node.spelling, node.location.file.name, node.location.line))
-        elif node.kind == clang.cindex.CursorKind.CLASS_DECL:
-            code_info['classes'].append((node.spelling, node.location.file.name, node.location.line))
-
-        for child in node.get_children():
-            visit_node(child)
-
-    visit_node(cursor)
-    return code_info
-
-# Load model with Phi-3.5, CodeT5, and GPT-2 fallback
-def load_model():
-    cache_file_path = os.path.join(MODEL_CACHE_DIR, 'model_cache.pkl')
-    if os.path.exists(cache_file_path):
-        try:
-            with open(cache_file_path, 'rb') as f:
-                return pickle.load(f)
-        except Exception:
-            os.remove(cache_file_path)
-
+def load_phi_model():
+    print("Loading Phi-3.5 model...")
+    model_name = "microsoft/phi-3.5-mini-instruct"
     try:
-        print("Attempting to load Phi-3.5 model...")
-        model_name = "microsoft/Phi-3.5-mini-instruct"
-        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-        model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, torch_dtype=torch.float32)
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True, cache_dir=MODEL_CACHE_DIR)
+        model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, torch_dtype=torch.float32, cache_dir=MODEL_CACHE_DIR)
         print("Phi-3.5 model loaded successfully.")
+        return tokenizer, model
     except Exception as e:
-        print(f"Failed to load Phi-3.5 model: {e}")
-        print("Falling back to CodeT5 model...")
+        print(f"Failed to load Phi-3.5 model: {str(e)}")
+        return None, None
 
-        try:
-            model_name = "Salesforce/codet5-base"
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
-            model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-            print("CodeT5 model loaded successfully.")
-        except Exception as e:
-            print(f"Failed to load CodeT5 model: {e}")
-            print("Falling back to GPT-2 model...")
-            model_name = "gpt2"
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
-            model = AutoModelForCausalLM.from_pretrained(model_name)
-            print("GPT-2 model loaded successfully.")
-
-    with open(cache_file_path, 'wb') as f:
-        pickle.dump((tokenizer, model), f)
-        print("Model cached successfully.")
-
-    return tokenizer, model
-
-# Generate a response using the model
-@lru_cache(maxsize=1000)
-def generate_response(question, file_path, tokenizer, model):
-    code_info = extract_code_info(file_path)
-    if not code_info:
-        return "Could not analyze the code."
+def generate_response(question, code_info, tokenizer, model):
+    if not tokenizer or not model:
+        return "Model not loaded. Cannot generate response."
 
     anomaly_detection = detect_code_anomalies(code_info)
 
     context = f"""
+    Analyze the following C++ code information:
     Allocations: {code_info['allocations']}
     Integer Variables: {code_info['int_vars']}
     Functions: {code_info['functions']}
     Classes: {code_info['classes']}
     Anomalies: {anomaly_detection}
-    Question: {question}
+
+    Human: {question}
+
+    Assistant: Based on the provided C++ code information, I can answer your question:
     """
 
-    inputs = tokenizer(context, return_tensors="pt", max_length=1024, truncation=True)
-    outputs = model.generate(**inputs, max_new_tokens=150, num_return_sequences=1)
+    inputs = tokenizer(context, return_tensors="pt", truncation=True, max_length=2048)
+    outputs = model.generate(**inputs, max_new_tokens=200, num_return_sequences=1, temperature=0.7)
     response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    return response.split("Assistant:")[-1].strip()
+    
+    # Extract the answer part after "Assistant:"
+    answer = response.split("Assistant:")[-1].strip()
+    return answer
 
-# REPL for interactive analysis
 def repl(file_path, tokenizer, model):
+    code_info = extract_code_info(file_path)
+    if not code_info:
+        print("Failed to extract code information.")
+        return
+
     print("C++ Code Analyzer REPL (Type 'exit' to quit)")
     while True:
-        question = input("\nAsk a question about the code: ")
-        if question.lower() == 'exit':
-            break
-        answer = generate_response(question, file_path, tokenizer, model)
-        print(f"\nAnswer: {answer}")
+        try:
+            question = input("\nAsk a question about the code: ")
+            if question.lower() == 'exit':
+                break
+            answer = generate_response(question, code_info, tokenizer, model)
+            print(f"\nAnswer: {answer}")
+        except KeyboardInterrupt:
+            print("\nInterrupted. Type 'exit' to quit or continue asking questions.")
+        except Exception as e:
+            print(f"Error generating response: {e}")
 
 def main():
     if len(sys.argv) < 2:
@@ -239,10 +216,11 @@ def main():
         print(f"Error: File '{file_path}' does not exist.")
         return
 
-    tokenizer, model = load_model()
+    tokenizer, model = load_phi_model()
     if tokenizer and model:
         repl(file_path, tokenizer, model)
+    else:
+        print("Failed to load the Phi-3.5 model. Exiting.")
 
 if __name__ == "__main__":
     main()
-
