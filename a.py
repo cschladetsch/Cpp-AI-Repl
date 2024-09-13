@@ -9,22 +9,22 @@ from sklearn.preprocessing import StandardScaler
 import warnings
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
+from colorama import init, Fore, Style
 
+# Initialize colorama for colored output
+init(autoreset=True)
+
+# Suppress specific warnings
 warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # Define cache directories
 BASE_CACHE_DIR = os.path.expanduser('~/.cache')
 CPP_ANALYZER_CACHE_DIR = os.path.join(BASE_CACHE_DIR, 'cpp_analyzer')
 MODEL_CACHE_DIR = os.path.join(CPP_ANALYZER_CACHE_DIR, 'models')
-HUGGINGFACE_CACHE_DIR = os.path.join(BASE_CACHE_DIR, 'huggingface')
 
-# Create cache directories
+# Create cache directories if they do not exist
 os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
-os.makedirs(HUGGINGFACE_CACHE_DIR, exist_ok=True)
-
-# Set environment variables for caching
-os.environ['TRANSFORMERS_CACHE'] = HUGGINGFACE_CACHE_DIR
-os.environ['HF_HOME'] = HUGGINGFACE_CACHE_DIR
 
 def setup_clang_library():
     libclang_path = os.environ.get('LIBCLANG_PATH')
@@ -45,7 +45,7 @@ def setup_clang_library():
 def load_clang():
     libclang_path = setup_clang_library()
     if libclang_path is None:
-        print("Failed to load libclang.")
+        print(f"{Fore.RED}Failed to load libclang.{Style.RESET_ALL}")
         return False
 
     try:
@@ -53,7 +53,7 @@ def load_clang():
         clang.cindex.Config.set_library_file(libclang_path)
         return True
     except ImportError:
-        print("Install libclang with 'pip install libclang'.")
+        print(f"{Fore.YELLOW}Install libclang with 'pip install libclang'.{Style.RESET_ALL}")
         return False
 
 if not load_clang():
@@ -67,7 +67,7 @@ def parse_cpp_file(file_path):
         index = clang.cindex.Index.create()
         return index.parse(file_path)
     except Exception as e:
-        print(f"Error parsing C++ file: {e}")
+        print(f"{Fore.RED}Error parsing C++ file: {e}{Style.RESET_ALL}")
         return None
 
 def build_ast_graph(cursor):
@@ -105,8 +105,8 @@ def detect_code_anomalies(code_info):
     labels = clf.predict(features)
 
     if -1 in labels:
-        return "Potential code anomaly detected."
-    return "No significant code anomalies detected."
+        return f"{Fore.RED}Potential code anomaly detected.{Style.RESET_ALL}"
+    return f"{Fore.GREEN}No significant code anomalies detected.{Style.RESET_ALL}"
 
 @lru_cache(maxsize=1000)
 def extract_code_info(file_path):
@@ -127,7 +127,7 @@ def extract_code_info(file_path):
         try:
             code_info['ast_graph'] = build_ast_graph(cursor)
         except Exception as e:
-            print(f"Error building AST graph: {e}")
+            print(f"{Fore.RED}Error building AST graph: {e}{Style.RESET_ALL}")
 
         def visit_node(node):
             if node.kind == clang.cindex.CursorKind.CALL_EXPR and node.spelling in ['new', 'malloc']:
@@ -145,24 +145,24 @@ def extract_code_info(file_path):
         visit_node(cursor)
         return code_info
     except Exception as e:
-        print(f"Error extracting code info: {e}")
+        print(f"{Fore.RED}Error extracting code info: {e}{Style.RESET_ALL}")
         return None
 
 def load_phi_model():
-    print("Loading Phi-3.5 model...")
+    print(f"{Fore.CYAN}Loading Phi-3.5 model...{Style.RESET_ALL}")
     model_name = "microsoft/phi-3.5-mini-instruct"
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True, cache_dir=MODEL_CACHE_DIR)
         model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, torch_dtype=torch.float32, cache_dir=MODEL_CACHE_DIR)
-        print("Phi-3.5 model loaded successfully.")
+        print(f"{Fore.GREEN}Phi-3.5 model loaded successfully.{Style.RESET_ALL}")
         return tokenizer, model
     except Exception as e:
-        print(f"Failed to load Phi-3.5 model: {str(e)}")
+        print(f"{Fore.RED}Failed to load Phi-3.5 model: {str(e)}{Style.RESET_ALL}")
         return None, None
 
 def generate_response(question, code_info, tokenizer, model):
     if not tokenizer or not model:
-        return "Model not loaded. Cannot generate response."
+        return f"{Fore.RED}Model not loaded. Cannot generate response.{Style.RESET_ALL}"
 
     anomaly_detection = detect_code_anomalies(code_info)
 
@@ -185,42 +185,43 @@ def generate_response(question, code_info, tokenizer, model):
     
     # Extract the answer part after "Assistant:"
     answer = response.split("Assistant:")[-1].strip()
-    return answer
+    return f"{Fore.YELLOW}{answer}{Style.RESET_ALL}"
 
 def repl(file_path, tokenizer, model):
     code_info = extract_code_info(file_path)
     if not code_info:
-        print("Failed to extract code information.")
+        print(f"{Fore.RED}Failed to extract code information.{Style.RESET_ALL}")
         return
 
-    print("C++ Code Analyzer REPL (Type 'exit' to quit)")
+    print(f"{Fore.CYAN}C++ Code Analyzer REPL (Type 'exit' to quit){Style.RESET_ALL}")
     while True:
         try:
-            question = input("\nAsk a question about the code: ")
+            question = input(f"\n{Fore.GREEN}Ask a question about the code: {Style.RESET_ALL}")
             if question.lower() == 'exit':
                 break
             answer = generate_response(question, code_info, tokenizer, model)
             print(f"\nAnswer: {answer}")
         except KeyboardInterrupt:
-            print("\nInterrupted. Type 'exit' to quit or continue asking questions.")
+            print(f"\n{Fore.YELLOW}Interrupted. Type 'exit' to quit or continue asking questions.{Style.RESET_ALL}")
         except Exception as e:
-            print(f"Error generating response: {e}")
+            print(f"{Fore.RED}Error generating response: {e}{Style.RESET_ALL}")
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python a.py <cpp_file_path>")
+        print(f"{Fore.RED}Usage: python a.py <cpp_file_path>{Style.RESET_ALL}")
         return
 
     file_path = sys.argv[1]
     if not os.path.exists(file_path):
-        print(f"Error: File '{file_path}' does not exist.")
+        print(f"{Fore.RED}Error: File '{file_path}' does not exist.{Style.RESET_ALL}")
         return
 
     tokenizer, model = load_phi_model()
     if tokenizer and model:
         repl(file_path, tokenizer, model)
     else:
-        print("Failed to load the Phi-3.5 model. Exiting.")
+        print(f"{Fore.RED}Failed to load the Phi-3.5 model. Exiting.{Style.RESET_ALL}")
 
 if __name__ == "__main__":
     main()
+
