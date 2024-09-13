@@ -176,15 +176,21 @@ def generate_response(question, code_info, tokenizer, model):
 
     Human: {question}
 
-    Assistant: Based on the provided C++ code information, I can answer your question:
+    Assistant: Based on the provided C++ code information, I will directly answer your question:
     """
 
-    inputs = tokenizer(context, return_tensors="pt", truncation=True, max_length=2048)
-    outputs = model.generate(**inputs, max_new_tokens=200, num_return_sequences=1, temperature=0.7)
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    # Suppress deprecation warnings from the tokenizer and model generation
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning)
+
+        inputs = tokenizer(context, return_tensors="pt", truncation=True, max_length=2048)
+        outputs = model.generate(**inputs, max_new_tokens=200, num_return_sequences=1, temperature=0.7)
+        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
     
     # Extract the answer part after "Assistant:"
     answer = response.split("Assistant:")[-1].strip()
+
+    # Return a clean and non-redundant answer
     return f"{Fore.YELLOW}{answer}{Style.RESET_ALL}"
 
 def repl(file_path, tokenizer, model):
@@ -193,22 +199,19 @@ def repl(file_path, tokenizer, model):
         print(f"{Fore.RED}Failed to extract code information.{Style.RESET_ALL}")
         return
 
-    print(f"{Fore.CYAN}C++ Code Analyzer REPL (Type 'exit' to quit){Style.RESET_ALL}")
     while True:
         try:
-            question = input(f"\n{Fore.GREEN}Ask a question about the code: {Style.RESET_ALL}")
+            question = input(f"\n{Fore.GREEN}cwc> {Style.RESET_ALL}")
             if question.lower() == 'exit':
                 break
             answer = generate_response(question, code_info, tokenizer, model)
             print(f"\nAnswer: {answer}")
-        except KeyboardInterrupt:
-            print(f"\n{Fore.YELLOW}Interrupted. Type 'exit' to quit or continue asking questions.{Style.RESET_ALL}")
         except Exception as e:
             print(f"{Fore.RED}Error generating response: {e}{Style.RESET_ALL}")
 
 def main():
     if len(sys.argv) < 2:
-        print(f"{Fore.RED}Usage: python a.py <cpp_file_path>{Style.RESET_ALL}")
+        print(f"{Fore.RED}Usage: python3 <cpp_file_path>{Style.RESET_ALL}")
         return
 
     file_path = sys.argv[1]
