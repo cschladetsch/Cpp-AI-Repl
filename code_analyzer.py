@@ -126,8 +126,8 @@ class CodeAnalyzer:
                 code_info['constructors'].append((node.displayname, location))
             elif node.kind == self.cursor_kind.DESTRUCTOR:
                 code_info['destructors'].append((node.displayname, location))
-            elif node.kind == self.cursor_kind.CXX_METHOD and node.is_operator():
-                code_info['operator_overloads'].append((node.displayname, location))
+            elif node.kind == self.cursor_kind.CXX_METHOD and node.spelling.startswith('operator'):
+                code_info['operator_overloads'].append((node.spelling, location))
             elif node.kind == self.cursor_kind.FRIEND_DECL:
                 code_info['friend_functions'].append((node.displayname, location))
             elif node.kind == self.cursor_kind.CXX_METHOD and node.is_virtual_method():

@@ -1,4 +1,5 @@
 import os
+import json
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from colorama import Fore, Style
@@ -100,52 +101,41 @@ class PhiModelHandler:
     def _save_to_cache(self):
         os.makedirs(self.cache_dir, exist_ok=True)
         try:
-            with open(self.model_cache_file, 'wb') as f:
-                pickle.dump(self.model, f)
+            # Try to save the model state_dict instead of the whole model
+            torch.save(self.model.state_dict(), self.model_cache_file)
             with open(self.tokenizer_cache_file, 'wb') as f:
                 pickle.dump(self.tokenizer, f)
-            print(f"{Fore.GREEN}Model and tokenizer cached successfully.{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}Model state_dict and tokenizer cached successfully.{Style.RESET_ALL}")
         except Exception as e:
-            print(f"{Fore.YELLOW}Failed to cache model: {str(e)}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Failed to cache model: {str(e)}. The model will be reloaded in future sessions.{Style.RESET_ALL}")
 
     def generate_response(self, question, code_info):
         if not self.tokenizer or not self.model:
             return f"{Fore.RED}Model not loaded. Cannot generate response.{Style.RESET_ALL}"
+        
+        try:
+            code_info_str = json.dumps(code_info, indent=2, default=str)
+        except:
+            code_info_str = str(code_info)
+        
+        context = f"""Based on this C++ code information:
+    {code_info_str}
 
-        context = f"""Analyze the following C++ code information:
-File: {code_info['file_path']}
-Includes: {code_info['includes']}
-Namespaces: {code_info['namespaces']}
-Classes: {code_info['classes']}
-Structs: {code_info['structs']}
-Enums: {code_info['enums']}
-Global Variables: {code_info['global_variables']}
-Functions: {code_info['functions']}
-Templates: {code_info['templates']}
-Typedefs: {code_info['typedefs']}
-Macros: {code_info['macros']}
-Local Variables: {code_info['local_variables']}
-Member Variables: {code_info['member_variables']}
-Constructors: {code_info['constructors']}
-Destructors: {code_info['destructors']}
-Operator Overloads: {code_info['operator_overloads']}
-Friend Functions: {code_info['friend_functions']}
-Virtual Functions: {code_info['virtual_functions']}
-Pure Virtual Functions: {code_info['pure_virtual_functions']}
-Lambda Expressions: {code_info['lambda_expressions']}
-Exception Handlers: {code_info['exception_handlers']}
-Memory Allocations: {code_info['memory_allocations']}
-Static Assertions: {code_info['static_assertions']}
-Anomalies: {code_info['anomalies']}
-        """
-# Assistant: Based on the provided C++ code information, I will directly answer your question:
+    Question: {question}
+    Answer: """
+
+        print(code_info_str)
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning)
-
             inputs = self.tokenizer(context, return_tensors="pt", truncation=True, max_length=2048)
-            outputs = self.model.generate(**inputs, max_new_tokens=200, num_return_sequences=1, temperature=0.7)
+            outputs = self.model.generate(**inputs, max_new_tokens=2000, num_return_sequences=1, temperature=0.3)
             response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
         
-        answer = response.split("Assistant:")[-1].strip()
+        # Extract the answer part
+        answer = response.split("Answer:")[-1].strip()
+        
+        if not answer:
+            answer = "Unable to generate a response. Please try rephrasing your question."
+        
         return f"{Fore.YELLOW}{answer}{Style.RESET_ALL}"
