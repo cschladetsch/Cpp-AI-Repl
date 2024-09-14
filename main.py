@@ -26,6 +26,9 @@ def repl(file_path, model_handler, code_analyzer):
             if not code_info:
                 print(f"{Fore.RED}Failed to extract code information.{Style.RESET_ALL}")
                 continue
+            if question.lower() == 'info':
+                print(code_info)
+                continue
             answer = model_handler.generate_response(question, code_info)
             print(f"\nAnswer: {answer}")
         except Exception as e:

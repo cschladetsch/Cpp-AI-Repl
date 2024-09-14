@@ -124,8 +124,6 @@ class PhiModelHandler:
     Question: {question}
     Answer: """
 
-        print(code_info_str)
-
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning)
             inputs = self.tokenizer(context, return_tensors="pt", truncation=True, max_length=2048)
