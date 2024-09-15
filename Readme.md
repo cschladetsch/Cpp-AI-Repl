@@ -18,6 +18,7 @@ This project is a C++ code analysis tool that uses the Phi language model to pro
 - NetworkX
 - scikit-learn
 - libclang
+- CodeBERT
 
 ## Installation
 
@@ -96,7 +97,54 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - Thanks to the developers of PyTorch, Transformers, and other libraries used in this project
 
 -------
+# CodeBERT vs Phi-3.5 for C++ Code Analysis
 
+## CodeBERT
+
+1. **Purpose**: CodeBERT is specifically designed for programming language understanding tasks.
+2. **Architecture**: Based on RoBERTa, a BERT variant optimized for code.
+3. **Training**: Pre-trained on large-scale code repositories in multiple programming languages, including C++.
+4. **Strengths**:
+   - Strong at understanding code structure and semantics
+   - Good at tasks like code search, clone detection, and code-to-text generation
+5. **Limitations**:
+   - Not designed for open-ended text generation
+   - Limited context window (typically 512 tokens)
+
+## Phi-3.5
+
+1. **Purpose**: General-purpose language model with instruction-following capabilities.
+2. **Architecture**: Based on the Transformer architecture, optimized for efficiency.
+3. **Training**: Trained on a broad range of internet text, including some programming-related content.
+4. **Strengths**:
+   - Capable of generating human-like responses to open-ended questions
+   - Can follow complex instructions and generate coherent, contextual responses
+   - Larger context window (up to 128k tokens for some versions)
+5. **Limitations**:
+   - Not specifically optimized for code understanding
+   - May sometimes generate plausible but incorrect code or explanations
+
+## Working Together in Your Code
+
+1. **Complementary Roles**:
+   - CodeBERT provides a deep understanding of the code structure and semantics.
+   - Phi-3.5 generates human-readable responses and explanations based on the code analysis.
+
+2. **Integration Process**:
+   - The code is first analyzed using the `CodeAnalyzer` class, which uses Clang to parse the C++ code and extract structural information.
+   - This structural information is then processed by CodeBERT to generate embeddings that capture the code's semantic meaning.
+   - The CodeBERT embeddings are combined with the user's question and fed into Phi-3.5.
+   - Phi-3.5 uses this combined input to generate a response that leverages both the code understanding from CodeBERT and its own language generation capabilities.
+
+3. **Specific Implementation**:
+   - In the `generate_response` method of `ModelHandler`:
+     - CodeBERT processes the input (which includes the code summary and user question) to generate embeddings.
+     - These embeddings are concatenated with the Phi-3.5 input tokens.
+     - Phi-3.5 then generates the final response based on this combined input.
+
+This approach allows the system to leverage CodeBERT's specialized code understanding capabilities while utilizing Phi-3.5's more general language understanding and generation abilities to provide informative and contextually relevant responses to user queries about the C++ code.
+
+-------
 
 # C++ Code Analyzer Project Evaluation
 
