@@ -1,4 +1,6 @@
 # C++ Code Analyzer with Phi Model
+[![Code Climate](https://codeclimate.com/github/cschladetsch/Cpp-AI-Repl/badges/gpa.svg)](https://codeclimate.com/github/username/Cpp-AI-Repl)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 This project is a C++ code analysis tool that uses the Phi language model to provide insights and answer questions about C++ code.
 
@@ -95,7 +97,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[Specify your license here]
+MIT
 
 ## Acknowledgments
 
