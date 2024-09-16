@@ -32,13 +32,13 @@ Here's a sample session with `cwc` as of September 2024:
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/cpp-code-analyzer.git
-   cd cpp-code-analyzer
+   git clone https://github.com/cschladetsch/Cpp-AI-Repl cpp-ai-repl
+   cd cpp-ai-repl
    ```
 
 2. Install the required dependencies:
    ```
-   pip install torch transformers colorama networkx scikit-learn libclang
+   pip install -r requirements.txt
    ```
 
 3. Ensure that libclang is properly installed and accessible in your system path.
