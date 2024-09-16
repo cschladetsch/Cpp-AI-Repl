@@ -9,6 +9,12 @@ This project is a C++ code analysis tool that uses the Phi language model to pro
 - Supports various Phi model versions
 - Provides a command-line interface for interaction
 
+## Example Session
+
+Here's a sample session with `cwc` as of September 2024:
+
+![Session](resources/cwc-1.jpg)
+
 ## Requirements
 
 - Python 3.7+
