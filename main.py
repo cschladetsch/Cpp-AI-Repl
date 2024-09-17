@@ -3,23 +3,18 @@ import logging
 from model_handler import CodeBERTPhiHandler
 from code_analyzer import CodeAnalyzer
 from colorama import init, Fore, Style
-from tqdm import tqdm
 import time
 import threading
 import queue as queue_module
 import concurrent.futures
 import os
+from alive_progress import alive_bar, config_handler
 
 # Initialize colorama
 init(autoreset=True)
 
-# Try to import alive_progress, use a fallback if not available
-try:
-    from alive_progress import alive_bar
-    use_alive_progress = True
-except ImportError:
-    use_alive_progress = False
-    print(f"{Fore.YELLOW}Note: For enhanced progress bars, install 'alive-progress' using 'pip install alive-progress'{Style.RESET_ALL}")
+# Configure alive-progress
+config_handler.set_global(spinner="dots_waves", bar="smooth", unknown="arrows")
 
 def setup_logging(debug=False, log_file=None):
     log_level = logging.DEBUG if debug else logging.INFO
@@ -44,29 +39,6 @@ def parse_arguments():
     parser.add_argument("--output", help="Specify a file to write analysis results")
     return parser.parse_args()
 
-def generate_response_with_timeout(model_handler, question, code_embeddings, timeout):
-    def target(q):
-        try:
-            result = model_handler.generate_combined_response(question, code_embeddings)
-            q.put(result)
-        except Exception as e:
-            q.put(f"Error: {str(e)}")
-
-    q = queue_module.Queue()
-    thread = threading.Thread(target=target, args=(q,))
-    thread.start()
-    thread.join(timeout)
-
-    if thread.is_alive():
-        return None, "Response generation timed out"
-    
-    try:
-        result = q.get_nowait()
-        if isinstance(result, str) and result.startswith("Error:"):
-            return None, result
-        return result, None
-    except queue_module.Empty:
-        return None, "Unknown error occurred during response generation"
 def analyze_file(file_path, code_analyzer, model_handler):
     try:
         with open(file_path, 'r') as f:
@@ -83,16 +55,16 @@ def analyze_file(file_path, code_analyzer, model_handler):
             'file_path': file_path,
             'static_analysis': static_analysis,
             'code_embeddings': code_embeddings,
-            'code_content': code_content  # Store the code content
+            'code_content': code_content
         }
     except Exception as e:
         print(f"{Fore.RED}Error analyzing file {file_path}: {e}{Style.RESET_ALL}")
         return None
 
-def generate_response_with_timeout(model_handler, question, code_embeddings, code_content, timeout):
+def generate_response_with_timeout(model_handler, question, code_embeddings, code_content, static_analysis, timeout):
     def target(q):
         try:
-            result = model_handler.generate_combined_response(question, code_embeddings, code_content)
+            result = model_handler.generate_combined_response(question, code_embeddings, code_content, static_analysis)
             q.put(result)
         except Exception as e:
             q.put(f"Error: {str(e)}")
@@ -100,11 +72,17 @@ def generate_response_with_timeout(model_handler, question, code_embeddings, cod
     q = queue_module.Queue()
     thread = threading.Thread(target=target, args=(q,))
     thread.start()
-    thread.join(timeout)
 
-    if thread.is_alive():
-        return None, "Response generation timed out"
-    
+    start_time = time.time()
+    with alive_bar(total=None, title="Generating response", spinner="dots_waves") as bar:
+        while thread.is_alive():
+            thread.join(0.1)
+            bar()
+            if not thread.is_alive():
+                break
+            if time.time() - start_time > timeout:
+                return None, "Response generation timed out"
+
     try:
         result = q.get_nowait()
         if isinstance(result, str) and result.startswith("Error:"):
@@ -135,17 +113,11 @@ def main():
     code_analyzer = CodeAnalyzer()
     
     print(f"{Fore.YELLOW}Loading models...{Style.RESET_ALL}")
-    if use_alive_progress:
-        with alive_bar(2, title='Loading models', bar='classic', spinner='classic') as bar:
-            model_handler.load_codebert_model()
-            bar()
-            model_handler.load_phi_model()
-            bar()
-    else:
-        print("Loading CodeBERT model...")
+    with alive_bar(2, title="Loading models", spinner="dots_waves") as bar:
         model_handler.load_codebert_model()
-        print("Loading Phi model...")
+        bar()
         model_handler.load_phi_model()
+        bar()
     print(f"{Fore.GREEN}Models loaded successfully{Style.RESET_ALL}")
 
     # Determine if the input is a file or directory
@@ -163,10 +135,12 @@ def main():
     analysis_results = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_to_file = {executor.submit(analyze_file, file, code_analyzer, model_handler): file for file in files_to_analyze}
-        for future in tqdm(concurrent.futures.as_completed(future_to_file), total=len(files_to_analyze), desc="Analyzing files", ncols=70):
-            result = future.result()
-            if result:
-                analysis_results.append(result)
+        with alive_bar(len(files_to_analyze), title="Analyzing files", spinner="dots_waves") as bar:
+            for future in concurrent.futures.as_completed(future_to_file):
+                result = future.result()
+                if result:
+                    analysis_results.append(result)
+                bar()
 
     print(f"{Fore.GREEN}Code analysis complete{Style.RESET_ALL}")
 
@@ -190,24 +164,14 @@ def main():
                 break
 
             print(f"{Fore.YELLOW}Generating response...{Style.RESET_ALL}")
-            if use_alive_progress:
-                with alive_bar(title='Generating response', bar='classic', spinner='classic') as bar:
-                    response, error = generate_response_with_timeout(
-                        model_handler, 
-                        question, 
-                        analysis_results[0]['code_embeddings'],
-                        analysis_results[0]['code_content'],
-                        args.timeout
-                    )
-                    bar()
-            else:
-                response, error = generate_response_with_timeout(
-                    model_handler, 
-                    question, 
-                    analysis_results[0]['code_embeddings'],
-                    analysis_results[0]['code_content'],
-                    args.timeout
-                )
+            response, error = generate_response_with_timeout(
+                model_handler, 
+                question, 
+                analysis_results[0]['code_embeddings'],
+                analysis_results[0]['code_content'],
+                analysis_results[0]['static_analysis'],
+                args.timeout
+            )
 
             if error:
                 print(f"\n{Fore.RED}Error: {error}{Style.RESET_ALL}")
@@ -225,7 +189,6 @@ def main():
             logger.exception("Detailed error information:")
 
     print(f"{Fore.CYAN}Exiting C++ Analyzer. Goodbye!{Style.RESET_ALL}")
-
 
 if __name__ == "__main__":
     main()

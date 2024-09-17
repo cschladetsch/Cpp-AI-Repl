@@ -1,6 +1,6 @@
 import os
 import torch
-from transformers import AutoModelForMaskedLM, AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForMaskedLM, AutoModelForCausalLM, AutoTokenizer
 import time
 import logging
 from colorama import Fore, Style
@@ -27,9 +27,7 @@ class CodeBERTPhiHandler:
     def load_phi_model(self):
         self.logger.info("Loading Phi model...")
         self.phi_tokenizer = AutoTokenizer.from_pretrained(self.phi_model_name, cache_dir=self.cache_dir)
-        
         try:
-            # Attempt to load the model with mixed precision
             self.phi_model = AutoModelForCausalLM.from_pretrained(
                 self.phi_model_name,
                 cache_dir=self.cache_dir,
@@ -44,7 +42,6 @@ class CodeBERTPhiHandler:
                 cache_dir=self.cache_dir,
                 device_map="cpu"
             )
-        
         self.logger.info("Phi model loaded successfully")
 
     def analyze_code_with_codebert(self, code):
@@ -53,7 +50,8 @@ class CodeBERTPhiHandler:
         with torch.no_grad():
             outputs = self.codebert_model(**inputs)
         return outputs.logits.mean(dim=1)
-    def generate_combined_response(self, question, code_embeddings, code_content):
+
+    def generate_combined_response(self, question, code_embeddings, code_content, static_analysis):
         start_time = time.time()
         self.logger.debug(f"Generating response for question: {question}")
 
@@ -63,34 +61,44 @@ class CodeBERTPhiHandler:
             with torch.no_grad():
                 query_outputs = self.codebert_model(**query_inputs)
             query_embeddings = query_outputs.logits.mean(dim=1)
-            self.logger.debug(f"Query embeddings shape: {query_embeddings.shape}")
 
             self.logger.debug("Combining embeddings")
-            self.logger.debug(f"Code embeddings shape: {code_embeddings.shape}")
             combined_embeddings = torch.cat((query_embeddings, code_embeddings), dim=1)
-            self.logger.debug(f"Combined embeddings shape: {combined_embeddings.shape}")
 
-            # Create a summary of embeddings and include a snippet of the actual code
             embedding_summary = f"Embedding shape: {combined_embeddings.shape}, Mean: {combined_embeddings.mean().item():.2f}, Max: {combined_embeddings.max().item():.2f}"
             code_snippet = code_content[:500] + "..." if len(code_content) > 500 else code_content
-            self.logger.debug(f"Embedding summary: {embedding_summary}")
+            
+            static_analysis_summary = "\n".join([f"{key}: {value}" for key, value in static_analysis.items() if key != 'ast_graph'])
 
             self.logger.debug("Preparing input for Phi model")
-            phi_input = f"C++ Code Snippet:\n{code_snippet}\n\nCode summary: {embedding_summary}\nQuestion: {question}\nAnswer:"
-            self.logger.debug(f"Phi input length: {len(phi_input)}")
+            phi_input = f"""Analyze the following C++ code and answer the question:
+
+C++ Code Snippet:
+{code_snippet}
+
+Static Analysis Summary:
+{static_analysis_summary}
+
+Code Embedding Summary:
+{embedding_summary}
+
+Question: {question}
+
+Provide a concise and relevant answer based on the C++ code and analysis provided:
+"""
             
             inputs = self.phi_tokenizer(phi_input, return_tensors="pt", truncation=True, max_length=2048)
             inputs = {k: v.to(self.phi_model.device) for k, v in inputs.items()}
             
             self.logger.debug("Generating response with Phi model")
-            self.phi_model.eval()  # Ensure the model is in evaluation mode
+            self.phi_model.eval()
             if torch.cuda.is_available():
-                torch.cuda.empty_cache()  # Clear CUDA cache if using GPU
+                torch.cuda.empty_cache()
 
             with torch.no_grad():
                 outputs = self.phi_model.generate(
                     **inputs,
-                    max_new_tokens=500,
+                    max_new_tokens=250,
                     temperature=0.7,
                     do_sample=True,
                     num_return_sequences=1,
@@ -99,7 +107,7 @@ class CodeBERTPhiHandler:
 
             self.logger.debug("Decoding response")
             response = self.phi_tokenizer.decode(outputs[0], skip_special_tokens=True)
-            response = response.split("Answer:")[-1].strip()
+            response = response.split("Provide a concise and relevant answer based on the C++ code and analysis provided:")[-1].strip()
             
             end_time = time.time()
             self.logger.debug(f"Response generation completed in {end_time - start_time:.2f} seconds")
