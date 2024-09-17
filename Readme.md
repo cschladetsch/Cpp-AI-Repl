@@ -1,4 +1,6 @@
 # C++ Code Analyzer with Phi Model
+[![Code Climate](https://codeclimate.com/github/cschladetsch/Cpp-AI-Repl/badges/gpa.svg)](https://codeclimate.com/github/username/Cpp-AI-Repl)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 This project is a C++ code analysis tool that uses the Phi language model to provide insights and answer questions about C++ code.
 
@@ -8,6 +10,12 @@ This project is a C++ code analysis tool that uses the Phi language model to pro
 - Uses the Phi language model to answer questions about the analyzed code
 - Supports various Phi model versions
 - Provides a command-line interface for interaction
+
+## Example Session
+
+Here's a sample session with `cwc` as of September 2024:
+
+![Session](resources/cwc-1.jpg)
 
 ## Requirements
 
@@ -24,13 +32,13 @@ This project is a C++ code analysis tool that uses the Phi language model to pro
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/cpp-code-analyzer.git
-   cd cpp-code-analyzer
+   git clone https://github.com/cschladetsch/Cpp-AI-Repl cpp-ai-repl
+   cd cpp-ai-repl
    ```
 
 2. Install the required dependencies:
    ```
-   pip install torch transformers colorama networkx scikit-learn libclang
+   pip install -r requirements.txt
    ```
 
 3. Ensure that libclang is properly installed and accessible in your system path.
@@ -89,7 +97,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[Specify your license here]
+MIT
 
 ## Acknowledgments
 
