@@ -1,6 +1,8 @@
 /logfile.log
 __pycache__/
 
+/cpp_analysis.log
+
 *Zone.Identifier
 
 
