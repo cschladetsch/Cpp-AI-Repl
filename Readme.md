@@ -48,7 +48,7 @@ Here's a sample session with `cwc` as of September 2024:
 Run the main script with a C++ file as an argument:
 
 ```
-python main.py path/to/your/cpp/file.cpp
+python3 main.py demo.cpp --log-file cpp_analysis.log --codebert microsoft/codebert-base --phi microsoft/phi-3.5-mini-instruct --timeout 600 --debug
 ```
 
 You can specify a different Phi model using the `-m` or `--model` flag:
