@@ -67,7 +67,7 @@ Available models include:
 
 ## Code Relaion
 
-![Process](resources/ClassDiagram.jpg)
+![Process](resources/ClassDiagram.png)
 
 ## Interactive Mode
 
