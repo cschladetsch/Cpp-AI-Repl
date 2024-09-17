@@ -91,6 +91,13 @@ def generate_response_with_timeout(model_handler, question, code_embeddings, cod
     except queue_module.Empty:
         return None, "Unknown error occurred during response generation"
 
+def format_response(response):
+    # Simple formatting to ensure consistent output
+    formatted_response = "Analysis Results:\n\n"
+    for line in response.split('\n'):
+        formatted_response += f"- {line.strip()}\n"
+    return formatted_response
+
 def main():
     args = parse_arguments()
     setup_logging(args.debug, args.log_file)
@@ -180,7 +187,8 @@ def main():
                 print(f"\n{Fore.YELLOW}No response generated. This might be due to an internal error or limitation.{Style.RESET_ALL}")
                 logger.warning("No response generated")
             else:
-                print(f"\n{Fore.GREEN}Answer:{Style.RESET_ALL} {response}")
+                formatted_response = format_response(response)
+                print(f"\n{Fore.GREEN}Answer:{Style.RESET_ALL}\n{formatted_response}")
         except KeyboardInterrupt:
             print(f"\n{Fore.YELLOW}Keyboard interrupt received. Exiting...{Style.RESET_ALL}")
             break

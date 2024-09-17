@@ -65,6 +65,10 @@ Available models include:
 - 3-mini-4k
 - (and others as listed in the `AVAILABLE_MODELS` dictionary)
 
+## Code Relaion
+
+![Process](resources/classes.jpg)
+
 ## Interactive Mode
 
 After loading a C++ file, you can interactively ask questions about the code:

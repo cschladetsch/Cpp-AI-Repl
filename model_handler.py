@@ -84,7 +84,9 @@ Code Embedding Summary:
 
 Question: {question}
 
-Provide a concise and relevant answer based on the C++ code and analysis provided:
+Provide a detailed and well-structured answer based on the C++ code and analysis provided. Include information about classes, functions, member variables, and any potential code issues or optimizations. Format your response clearly and consistently, using appropriate headers and bullet points where necessary.
+
+Answer:
 """
             
             inputs = self.phi_tokenizer(phi_input, return_tensors="pt", truncation=True, max_length=2048)
@@ -98,7 +100,7 @@ Provide a concise and relevant answer based on the C++ code and analysis provide
             with torch.no_grad():
                 outputs = self.phi_model.generate(
                     **inputs,
-                    max_new_tokens=250,
+                    max_new_tokens=400,  # Increased for more detailed responses
                     temperature=0.7,
                     do_sample=True,
                     num_return_sequences=1,
@@ -107,13 +109,30 @@ Provide a concise and relevant answer based on the C++ code and analysis provide
 
             self.logger.debug("Decoding response")
             response = self.phi_tokenizer.decode(outputs[0], skip_special_tokens=True)
-            response = response.split("Provide a concise and relevant answer based on the C++ code and analysis provided:")[-1].strip()
+            response = response.split("Answer:")[-1].strip()
             
             end_time = time.time()
             self.logger.debug(f"Response generation completed in {end_time - start_time:.2f} seconds")
             
-            return response
+            return self.format_response(response)
         except Exception as e:
             self.logger.error(f"Error in generate_combined_response: {str(e)}")
             self.logger.exception("Detailed error information:")
             raise
+
+    def format_response(self, response):
+        # Simple formatting to ensure consistent output
+        formatted_lines = []
+        current_section = ""
+        for line in response.split('\n'):
+            line = line.strip()
+            if line.endswith(':'):
+                current_section = line
+                formatted_lines.append(f"\n{line}")
+            elif line:
+                if current_section:
+                    formatted_lines.append(f"  - {line}")
+                else:
+                    formatted_lines.append(f"- {line}")
+        
+        return "\n".join(formatted_lines)
